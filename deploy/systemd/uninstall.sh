@@ -4,8 +4,6 @@ set -euo pipefail
 SERVICE_NAME="dinotty"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/dinotty"
-DATA_DIR="/var/lib/dinotty"
-SERVICE_USER="dinotty"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -44,26 +42,18 @@ if [[ -f "${INSTALL_DIR}/dinotty-server" ]]; then
     info "二进制文件已删除"
 fi
 
-# 删除系统用户
-if id "$SERVICE_USER" &>/dev/null; then
-    userdel "$SERVICE_USER" 2>/dev/null || true
-    info "系统用户已删除"
-fi
-
-# 询问是否删除数据
+# 询问是否删除配置
 echo ""
 if [[ -t 0 ]]; then
-    read -rp "是否删除配置目录 (${CONFIG_DIR}) 和数据目录 (${DATA_DIR})？[y/N] " confirm
+    read -rp "是否删除配置目录 (${CONFIG_DIR})？[y/N] " confirm
 else
     confirm=""
 fi
 if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    rm -rf "$CONFIG_DIR" "$DATA_DIR"
-    ok "配置和数据目录已删除"
+    rm -rf "$CONFIG_DIR"
+    ok "配置目录已删除"
 else
-    info "保留了配置和数据目录:"
-    echo "  配置: ${CONFIG_DIR}"
-    echo "  数据: ${DATA_DIR}"
+    info "保留了配置目录: ${CONFIG_DIR}"
 fi
 
 ok "Dinotty 已完全卸载"

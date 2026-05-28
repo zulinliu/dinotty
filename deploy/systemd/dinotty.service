@@ -8,9 +8,9 @@ StartLimitIntervalSec=60
 
 [Service]
 Type=simple
-User=dinotty
-Group=dinotty
-WorkingDirectory=/var/lib/dinotty
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__HOME__
 
 ExecStart=/usr/local/bin/dinotty-server --port ${DINOTTY_PORT}
 
@@ -19,13 +19,6 @@ RestartSec=5
 
 Environment=DINOTTY_PORT=8999
 EnvironmentFile=-/etc/dinotty/env
-
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-NoNewPrivileges=true
-ReadWritePaths=/var/lib/dinotty /tmp
-BindPaths=/home
 
 LimitNOFILE=65536
 

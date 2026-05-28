@@ -3,12 +3,11 @@ set -euo pipefail
 
 # ============================================================
 # Dinotty 一键部署脚本 (Linux systemd)
+# 以当前用户身份运行服务，保留完整用户环境
 # ============================================================
 
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/dinotty"
-DATA_DIR="/var/lib/dinotty"
-SERVICE_USER="dinotty"
 SERVICE_NAME="dinotty"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -47,6 +46,10 @@ usage() {
 环境变量:
   DINOTTY_PORT     服务端口
   DINOTTY_TOKEN    认证 Token
+
+说明:
+  服务将以执行 sudo 的用户身份运行（即 ${SUDO_USER:-$USER}），
+  保留该用户的完整环境（home 目录、shell 配置、文件权限等）。
 EOF
     exit 0
 }
@@ -63,6 +66,17 @@ done
 
 [[ "$(id -u)" -eq 0 ]] || die "请使用 sudo 运行此脚本"
 command -v systemctl &>/dev/null || die "未检测到 systemd"
+
+# 获取实际用户信息（执行 sudo 的用户）
+RUN_USER="${SUDO_USER:-$USER}"
+RUN_UID=$(id -u "$RUN_USER")
+RUN_GID=$(id -g "$RUN_USER")
+RUN_GROUP=$(id -gn "$RUN_USER")
+RUN_HOME=$(eval echo "~$RUN_USER")
+
+[[ -d "$RUN_HOME" ]] || die "用户 ${RUN_USER} 的 home 目录 ${RUN_HOME} 不存在"
+
+info "服务将以 ${RUN_USER} 用户身份运行，工作目录: ${RUN_HOME}"
 
 # 先停止服务（避免覆盖正在运行的二进制）
 systemctl stop "$SERVICE_NAME" 2>/dev/null || true
@@ -108,32 +122,11 @@ fi
 chmod +x "${INSTALL_DIR}/dinotty-server"
 ok "二进制已安装到 ${INSTALL_DIR}/dinotty-server"
 
-# 创建系统用户
-if ! id "$SERVICE_USER" &>/dev/null; then
-    useradd --system --create-home --shell /bin/bash "$SERVICE_USER"
-    ok "已创建系统用户: $SERVICE_USER"
-else
-    info "系统用户 $SERVICE_USER 已存在"
-fi
-
-# 确保 home 目录存在
-USER_HOME=$(eval echo "~$SERVICE_USER")
-if [[ ! -d "$USER_HOME" ]]; then
-    mkdir -p "$USER_HOME"
-    chown "$SERVICE_USER:$SERVICE_USER" "$USER_HOME"
-fi
-
-# 创建数据目录
-mkdir -p "$DATA_DIR"
-chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
-ok "数据目录: $DATA_DIR"
-
 # 创建配置目录
 mkdir -p "$CONFIG_DIR"
 
 if [[ -f "${CONFIG_DIR}/env" ]]; then
     info "配置文件已存在: ${CONFIG_DIR}/env（保留现有配置）"
-    # 更新 Token（如果指定了新的）
     if [[ -n "$TOKEN" ]]; then
         sed -i "s|^DINOTTY_TOKEN=.*|DINOTTY_TOKEN=${TOKEN}|" "${CONFIG_DIR}/env"
         info "已更新 DINOTTY_TOKEN"
@@ -143,16 +136,19 @@ else
 DINOTTY_PORT=${PORT}
 DINOTTY_TOKEN=${TOKEN}
 RUST_LOG=info
-SHELL=/bin/bash
 EOF
     chmod 600 "${CONFIG_DIR}/env"
     ok "配置文件已创建: ${CONFIG_DIR}/env"
 fi
 
-# 安装 systemd 服务文件
+# 生成 systemd 服务文件（替换用户信息）
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cp "${SCRIPT_DIR}/dinotty.service" "$SERVICE_FILE"
-ok "systemd 服务文件已安装"
+sed \
+    -e "s|__USER__|${RUN_USER}|g" \
+    -e "s|__GROUP__|${RUN_GROUP}|g" \
+    -e "s|__HOME__|${RUN_HOME}|g" \
+    "${SCRIPT_DIR}/dinotty.service" > "$SERVICE_FILE"
+ok "systemd 服务文件已安装（用户: ${RUN_USER}）"
 
 # 重新加载并启用
 systemctl daemon-reload
@@ -190,6 +186,8 @@ echo "=========================================="
 echo -e "  ${GREEN}Dinotty 部署成功!${NC}"
 echo "=========================================="
 echo ""
+echo -e "  运行用户:  ${RUN_USER}"
+echo -e "  工作目录:  ${RUN_HOME}"
 echo -e "  访问地址:  ${CYAN}http://${LAN_IP}:${PORT}/?token=${EFFECTIVE_TOKEN}${NC}"
 echo ""
 echo "  常用命令:"
@@ -198,6 +196,5 @@ echo "    查看日志:  journalctl -u $SERVICE_NAME -f"
 echo "    重启服务:  systemctl restart $SERVICE_NAME"
 echo "    停止服务:  systemctl stop $SERVICE_NAME"
 echo "    配置文件:  ${CONFIG_DIR}/env"
-echo "    数据目录:  ${DATA_DIR}"
 echo ""
 echo "=========================================="
